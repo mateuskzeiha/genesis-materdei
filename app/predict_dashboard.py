@@ -1,17 +1,20 @@
-import numpy as np
+from pathlib import Path
 import pandas as pd
 import streamlit as st
-import plotly.express as px
+import joblib
 
-# =========================
-# 1. CONFIGURAÇÃO BÁSICA
-# =========================
-st.set_page_config(
-    page_title="Genesis - Dashboard PREDICT",
-    layout="wide"
-)
 
-# Estilos customizados (cores Genesis)
+def project_root() -> Path:
+    # app/predict_dashboard.py -> root = .. (pasta do projeto)
+    return Path(__file__).resolve().parents[1]
+
+
+ROOT = project_root()
+MODEL_PATH = ROOT / "models" / "model.joblib"
+
+
+st.set_page_config(page_title="Genesis - Predict", layout="wide")
+
 st.markdown("""
     <style>
     .stButton > button {
@@ -22,232 +25,126 @@ st.markdown("""
         font-weight: 600;
         border: none;
     }
-    .stButton > button:hover {
-        background-color: #369565;
-    }
-    [data-testid="stMetricValue"] {
-        color: #369565;
-        font-weight: 900;
-    }
-    [data-testid="stMetricLabel"] {
-        color: #3ea06d;
-    }
+    .stButton > button:hover { background-color: #369565; }
+    [data-testid="stMetricValue"] { color: #369565; font-weight: 900; }
+    [data-testid="stMetricLabel"] { color: #3ea06d; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("Genesis – Protótipo Dashboard PREDICT")
-st.caption("Previsão de risco de desistência por paciente e perfil")
+st.caption("Predição de probabilidade de No-Show com base no modelo treinado (model.joblib)")
+
+
+@st.cache_resource
+def load_model(path: Path):
+    if not path.exists():
+        raise FileNotFoundError(f"Modelo não encontrado em: {path}")
+    return joblib.load(path)
+
+
+model = load_model(MODEL_PATH)
+
+
+def predict_single(row: dict) -> float:
+    df = pd.DataFrame([row])
+    proba = model.predict_proba(df)[:, 1][0]
+    return float(proba)
+
 
 # =========================
-# 2. GERANDO DADOS SINTÉTICOS
+# 1) PREDIÇÃO UNITÁRIA
 # =========================
+st.subheader("1) Predição unitária (formulário)")
 
-@st.cache_data
-def gerar_dados_sinteticos(n=3000, random_state=42):
-    np.random.seed(random_state)
+col1, col2, col3 = st.columns(3)
 
-    canais = ["App", "Site", "WhatsApp", "Call Center"]
-    unidades = ["Santo Agostinho", "Betim-Contagem", "Nova Lima", "Goiânia"]
-    especialidades = ["Cardiologia", "Oncologia", "Imagem", "Clínica Geral"]
+with col1:
+    gender = st.selectbox("Gender", ["F", "M"])
+    age = st.number_input("Age", min_value=0, max_value=120, value=30, step=1)
+    neighbourhood = st.text_input("Neighbourhood", value="JARDIM CAMBURI")
 
-    # Idade simples 18–90
-    idades = np.random.randint(18, 90, size=n)
+with col2:
+    scholarship = st.selectbox("Scholarship (0/1)", [0, 1])
+    hipertension = st.selectbox("Hipertension (0/1)", [0, 1])
+    diabetes = st.selectbox("Diabetes (0/1)", [0, 1])
 
-    df = pd.DataFrame({
-        "id_paciente": np.arange(1, n + 1),
-        "canal": np.random.choice(canais, size=n, p=[0.35, 0.30, 0.20, 0.15]),
-        "idade": idades,
-        "unidade": np.random.choice(unidades, size=n),
-        "especialidade": np.random.choice(
-            especialidades,
-            size=n,
-            p=[0.25, 0.25, 0.30, 0.20]
-        ),
-    })
+with col3:
+    alcoholism = st.selectbox("Alcoholism (0/1)", [0, 1])
+    handcap = st.number_input("Handcap", min_value=0, max_value=4, value=0, step=1)
+    sms_received = st.selectbox("SMS_received (0/1)", [0, 1])
 
-    # Probabilidade base de abandono
-    prob_base = 0.30
+st.divider()
 
-    # Ajuste pelo fator idade (60+)
-    ajuste_idade = np.where(df["idade"] >= 60, 0.15, 0.0)
+col4, col5, col6 = st.columns(3)
+with col4:
+    lead_time_hours = st.number_input("lead_time_hours", min_value=0.0, value=24.0, step=1.0)
+with col5:
+    sched_dow = st.number_input("sched_dow (0=Seg ... 6=Dom)", min_value=0, max_value=6, value=0, step=1)
+with col6:
+    appt_dow = st.number_input("appt_dow (0=Seg ... 6=Dom)", min_value=0, max_value=6, value=1, step=1)
 
-    # Ajuste por canal
-    ajuste_canal = df["canal"].map({
-        "App": 0.12,
-        "Site": 0.08,
-        "WhatsApp": 0.05,
-        "Call Center": 0.02
-    }).fillna(0.0)
+btn = st.button("Prever probabilidade de No-Show")
 
-    # Score de risco (0–1)
-    score_risco = np.clip(prob_base + ajuste_idade + ajuste_canal, 0, 0.95)
-    df["score_risco"] = score_risco
+if btn:
+    row = {
+        "Gender": gender,
+        "Neighbourhood": neighbourhood,
+        "Age": float(age),
+        "Scholarship": float(scholarship),
+        "Hipertension": float(hipertension),
+        "Diabetes": float(diabetes),
+        "Alcoholism": float(alcoholism),
+        "Handcap": float(handcap),
+        "SMS_received": float(sms_received),
+        "lead_time_hours": float(lead_time_hours),
+        "sched_dow": float(sched_dow),
+        "appt_dow": float(appt_dow),
+    }
 
-    # Simulação de abandono real a partir do score
-    df["abandona"] = np.random.binomial(1, df["score_risco"])
+    proba = predict_single(row)
+    st.metric("Probabilidade de No-Show", f"{proba:.2%}")
 
-    # Faixas de risco
-    bins = [0, 0.3, 0.6, 1.0]
-    labels = ["Baixo", "Moderado", "Alto"]
-    df["faixa_risco"] = pd.cut(df["score_risco"], bins=bins, labels=labels, include_lowest=True)
+    if proba >= 0.50:
+        st.warning("Risco alto: recomendável ação preventiva (confirmação ativa, lembrete, WhatsApp, etc.)")
+    elif proba >= 0.25:
+        st.info("Risco médio: vale reforçar lembrete e confirmação.")
+    else:
+        st.success("Risco baixo: fluxo padrão deve ser suficiente.")
 
-    return df
-
-
-df = gerar_dados_sinteticos()
-
-# =========================
-# 3. FILTROS (SIDEBAR)
-# =========================
-
-with st.sidebar:
-    st.header("Filtros")
-
-    canais_sel = st.multiselect(
-        "Canal",
-        options=sorted(df["canal"].unique()),
-        default=sorted(df["canal"].unique())
-    )
-
-    unidades_sel = st.multiselect(
-        "Unidade",
-        options=sorted(df["unidade"].unique()),
-        default=sorted(df["unidade"].unique())
-    )
-
-    especialidades_sel = st.multiselect(
-        "Especialidade",
-        options=sorted(df["especialidade"].unique()),
-        default=sorted(df["especialidade"].unique())
-    )
-
-    idade_min, idade_max = st.slider(
-        "Faixa etária",
-        min_value=int(df["idade"].min()),
-        max_value=int(df["idade"].max()),
-        value=(int(df["idade"].min()), int(df["idade"].max()))
-    )
-
-# Aplicando filtros
-df_filt = df[
-    (df["canal"].isin(canais_sel)) &
-    (df["unidade"].isin(unidades_sel)) &
-    (df["especialidade"].isin(especialidades_sel)) &
-    (df["idade"].between(idade_min, idade_max))
-].copy()
 
 # =========================
-# 4. KPIs PRINCIPAIS
+# 2) PREDIÇÃO EM LOTE (CSV)
 # =========================
+st.divider()
+st.subheader("2) Predição em lote (upload CSV)")
 
-total_pacientes = len(df_filt)
-risco_medio = (df_filt["score_risco"].mean() * 100) if total_pacientes else 0
+st.write("Seu CSV precisa ter as colunas abaixo (iguais ao treino):")
+needed = [
+    "Gender", "Neighbourhood", "Age", "Scholarship", "Hipertension", "Diabetes",
+    "Alcoholism", "Handcap", "SMS_received", "lead_time_hours", "sched_dow", "appt_dow"
+]
+st.code(", ".join(needed))
 
-df_60 = df_filt[df_filt["idade"] >= 60]
-risco_medio_60 = (df_60["score_risco"].mean() * 100) if len(df_60) > 0 else 0
+file = st.file_uploader("Upload do CSV", type=["csv"])
 
-perc_alto_risco = 0
-if total_pacientes > 0:
-    perc_alto_risco = (df_filt["faixa_risco"].value_counts(normalize=True)
-                       .get("Alto", 0) * 100)
+if file is not None:
+    df_in = pd.read_csv(file)
+    missing = [c for c in needed if c not in df_in.columns]
+    if missing:
+        st.error(f"Faltam colunas no CSV: {missing}")
+    else:
+        proba = model.predict_proba(df_in[needed])[:, 1]
+        df_out = df_in.copy()
+        df_out["proba_noshow"] = proba
+        df_out["pred_noshow_50"] = (df_out["proba_noshow"] >= 0.5).astype(int)
 
-# Canal com maior risco médio
-canal_critico = "-"
-if total_pacientes > 0:
-    canal_stats = (
-        df_filt.groupby("canal")["score_risco"]
-        .mean()
-        .sort_values(ascending=False)
-    )
-    if len(canal_stats) > 0:
-        canal_critico = f"{canal_stats.index[0]} ({canal_stats.iloc[0]*100:.1f}%)"
+        st.success("Predições geradas.")
+        st.dataframe(df_out.head(50), use_container_width=True)
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Risco médio de desistência", f"{risco_medio:.1f}%")
-col2.metric("Risco médio 60+", f"{risco_medio_60:.1f}%")
-col3.metric("% em alto risco", f"{perc_alto_risco:.1f}%")
-col4.metric("Canal com maior risco", canal_critico)
-
-st.markdown("---")
-
-# =========================
-# 5. DISTRIBUIÇÃO POR FAIXA DE RISCO
-# =========================
-
-st.subheader("Distribuição de pacientes por faixa de risco")
-
-if total_pacientes > 0:
-    faixa_df = (
-        df_filt["faixa_risco"]
-        .value_counts()
-        .reindex(["Baixo", "Moderado", "Alto"])
-        .dropna()
-        .reset_index()
-    )
-    faixa_df.columns = ["Faixa de risco", "Qtde"]
-
-    fig_faixa = px.bar(
-        faixa_df,
-        x="Faixa de risco",
-        y="Qtde",
-        text="Qtde",
-        title="Quantidade de pacientes por faixa de risco",
-        color_discrete_sequence=["#369565"]
-    )
-    fig_faixa.update_traces(textposition="outside")
-    fig_faixa.update_layout(
-        xaxis_title="Faixa de risco",
-        yaxis_title="Quantidade de pacientes",
-        uniformtext_minsize=8,
-        uniformtext_mode="hide"
-    )
-    st.plotly_chart(fig_faixa, use_container_width=True)
-else:
-    st.info("Nenhum dado disponível com os filtros atuais.")
-
-st.markdown("---")
-
-# =========================
-# 6. RISCO x IDADE (POR CANAL)
-# =========================
-
-st.subheader("Risco de desistência por idade e canal")
-
-if total_pacientes > 0:
-    fig_scatter = px.scatter(
-        df_filt,
-        x="idade",
-        y="score_risco",
-        color="canal",
-        labels={"idade": "Idade", "score_risco": "Risco de desistência"},
-        title="Distribuição de risco por idade e canal",
-        hover_data=["unidade", "especialidade"],
-        color_discrete_sequence=px.colors.qualitative.Set2
-    )
-    fig_scatter.update_layout(yaxis_tickformat=".0%")
-    st.plotly_chart(fig_scatter, use_container_width=True)
-else:
-    st.info("Nenhum dado disponível para o gráfico de risco por idade.")
-
-st.markdown("---")
-
-# =========================
-# 7. TABELA TOP PACIENTES EM ALTO RISCO
-# =========================
-
-st.subheader("Pacientes em alto risco (amostra)")
-
-if total_pacientes > 0:
-    df_alto = df_filt[df_filt["faixa_risco"] == "Alto"].copy()
-    df_alto = df_alto.sort_values(by="score_risco", ascending=False)
-    st.dataframe(
-        df_alto[["id_paciente", "idade", "canal", "unidade", "especialidade", "score_risco"]]
-        .head(50)
-        .assign(score_risco=lambda x: (x["score_risco"] * 100).round(1))
-        .rename(columns={"score_risco": "Risco (%)"})
-    )
-else:
-    st.info("Nenhum paciente em alto risco com os filtros atuais.")
-
-
-#streamlit run predict_dashboard.py
+        csv_bytes = df_out.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Baixar CSV com predições",
+            data=csv_bytes,
+            file_name="predicoes_noshow.csv",
+            mime="text/csv"
+        )
