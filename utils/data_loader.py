@@ -1,19 +1,40 @@
 import os
 import pandas as pd
 
-DATA_PATH = os.path.join("data", "noshowappointments.csv")
+
+def _resolve_path() -> str:
+    """
+    Resolve o caminho do CSV automaticamente.
+    Prioriza:
+    1) data/raw/noshowappointments.csv
+    2) data/noshowappointments.csv
+    """
+
+    path_raw = os.path.join("data", "raw", "noshowappointments.csv")
+    path_simple = os.path.join("data", "noshowappointments.csv")
+
+    if os.path.exists(path_raw):
+        return path_raw
+
+    if os.path.exists(path_simple):
+        return path_simple
+
+    raise FileNotFoundError(
+        "Arquivo não encontrado.\n"
+        "Coloque o CSV do Kaggle em:\n"
+        "- data/raw/noshowappointments.csv\n"
+        "ou\n"
+        "- data/noshowappointments.csv"
+    )
+
 
 def load_data() -> pd.DataFrame:
     """
-    Carrega o dataset do Kaggle (No-show appointments) e normaliza para um modelo em português,
-    pronto para dashboard executivo.
+    Carrega o dataset do Kaggle (No-show appointments) e normaliza
+    para modelo executivo em português.
     """
-    if not os.path.exists(DATA_PATH):
-        raise FileNotFoundError(
-            f"Arquivo não encontrado: {DATA_PATH}\n"
-            "Coloque o CSV do Kaggle em /data com o nome noshowappointments.csv"
-        )
 
+    DATA_PATH = _resolve_path()
     df = pd.read_csv(DATA_PATH)
 
     # Datas
@@ -31,23 +52,31 @@ def load_data() -> pd.DataFrame:
     out["idade"] = df["Age"].clip(lower=0)
     out["idade_60_mais"] = (out["idade"] >= 60).astype(int)
 
-    # "Canal" aqui é o tipo de confirmação (proxy): recebeu SMS ou não
-    out["canal_confirmacao"] = df["SMS_received"].map({1: "SMS", 0: "Sem SMS"}).fillna("Sem SMS")
+    # Canal (proxy: SMS recebido)
+    out["canal_confirmacao"] = (
+        df["SMS_received"]
+        .map({1: "SMS", 0: "Sem SMS"})
+        .fillna("Sem SMS")
+    )
 
-    # Localização (proxy de unidade): bairro
+    # Localização (proxy de unidade)
     out["bairro"] = df["Neighbourhood"].astype(str)
 
-    # Campos que não existem nesse dataset (mantemos para compatibilidade e clareza)
+    # Especialidade (proxy fixo)
     out["especialidade"] = "Geral"
 
-    # Antecedência (dias) entre agendamento e consulta
-    delta_minutes = (df["AppointmentDay"] - df["ScheduledDay"]).dt.total_seconds() / 60.0
+    # Antecedência (dias e minutos)
+    delta_minutes = (
+        (df["AppointmentDay"] - df["ScheduledDay"])
+        .dt.total_seconds() / 60.0
+    )
+
     delta_minutes = delta_minutes.fillna(0).clip(lower=0)
 
     out["antecedencia_minutos"] = delta_minutes.round().astype(int)
     out["antecedencia_dias"] = (delta_minutes / (60 * 24)).round().astype(int)
 
-    # No Kaggle, todos já são agendados (não existe etapa de "interessado")
+    # Todos são agendados nesse dataset
     out["agendado"] = 1
 
     # No-show
@@ -60,9 +89,10 @@ def load_data() -> pd.DataFrame:
         .fillna(0)
         .astype(int)
     )
+
     out["compareceu"] = (out["faltou"] == 0).astype(int)
 
-    # Valor não existe no Kaggle → proxy (ajustável no futuro)
+    # Proxy de valor
     out["valor_medio"] = 150.0
 
     return out

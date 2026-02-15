@@ -17,10 +17,6 @@ env/
 # VSCode
 .vscode/
 
-# Data/Models (se quiser evitar peso)
-data/*.csv
-models/
-
 # OS
 .DS_Store
 Thumbs.db
