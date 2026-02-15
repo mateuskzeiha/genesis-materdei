@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Venv
+.venv/
+.venv-1/
+venv/
+env/
+
+# Streamlit
+.streamlit/
+
+# VSCode
+.vscode/
+
+# Data/Models (se quiser evitar peso)
+data/*.csv
+models/
+
+# OS
+.DS_Store
+Thumbs.db
