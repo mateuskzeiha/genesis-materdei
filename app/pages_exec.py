@@ -2,11 +2,11 @@ import streamlit as st
 import plotly.express as px
 
 from utils.kpis import compute_exec_kpis, pipeline_agenda, perda_financeira, simular_reducao_no_show
+from utils.components import kpi_card, kpi_row, alert_banner
 
 
 def render_exec_overview(df):
     st.subheader("Executive Overview")
-
     st.caption(
         "Visão consolidada para gestão: taxa de no-show, impacto financeiro e potencial de "
         "recuperação com intervenções direcionadas."
@@ -15,28 +15,29 @@ def render_exec_overview(df):
     kpis = compute_exec_kpis(df)
     fin = perda_financeira(df)
     taxa_no_show = kpis["taxa_no_show"]
+    taxa_comp = kpis["taxa_comparecimento"]
 
-    # Alerta colorido quando taxa de no-show ultrapassa 20%
-    if taxa_no_show > 0.20:
-        st.error(
-            f"⚠️ **Alerta: taxa de no-show está em {taxa_no_show:.1%}** — acima do limite crítico de 20%. "
-            "Recomenda-se ativar protocolo de intervenção imediata (aba **Act**)."
-        )
-    elif taxa_no_show > 0.15:
-        st.warning(
-            f"⚠️ Taxa de no-show em {taxa_no_show:.1%} — atenção, aproximando-se do limite de 20%. "
-            "Monitore tendência nas próximas semanas."
-        )
-    else:
-        st.success(
-            f"✅ Taxa de no-show em {taxa_no_show:.1%} — dentro da faixa aceitável (< 15%)."
-        )
+    # Alerta dinâmico colorido
+    st.markdown(alert_banner(taxa_no_show), unsafe_allow_html=True)
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Conversão", "N/A (base só tem agendados)")
-    c2.metric("Comparecimento", f"{kpis['taxa_comparecimento']:.1%}")
-    c3.metric("No-show", f"{taxa_no_show:.1%}")
-    c4.metric("Perda estimada (no-show)", f"R$ {fin['perda_no_show']:,.0f}".replace(",", "."))
+    # KPI Cards HTML
+    cor_noshow = "#d32f2f" if taxa_no_show > 0.20 else ("#f57c00" if taxa_no_show > 0.15 else "#388e3c")
+    perda_fmt = f"R$ {fin['perda_no_show']:,.0f}".replace(",", ".")
+
+    cards = [
+        kpi_card("📅", "Agendamentos", f"{kpis['agendados']:,}".replace(",", "."),
+                 sublabel="no período filtrado"),
+        kpi_card("✅", "Comparecimento", f"{taxa_comp:.1%}",
+                 sublabel=f"{kpis['compareceram']:,} pacientes".replace(",", "."),
+                 color="#388e3c"),
+        kpi_card("⚠️", "No-show", f"{taxa_no_show:.1%}",
+                 sublabel=f"{kpis['faltaram']:,} faltas".replace(",", "."),
+                 color=cor_noshow),
+        kpi_card("💸", "Perda estimada", perda_fmt,
+                 sublabel="por no-show no período",
+                 color="#9333ea"),
+    ]
+    st.markdown(kpi_row(cards), unsafe_allow_html=True)
 
     st.divider()
 
@@ -59,6 +60,12 @@ def render_exec_overview(df):
             "Quanto de receita é recuperável ao reduzir o no-show em X%? "
             "Use como argumento para justificar investimento nas intervenções."
         )
-        reducao = st.slider("Redução de no-show (%)", 0, 30, 5, 1)
+        reducao = st.slider("Redução de no-show (%)", 0, 30, 5, 1, key="exec_roi_slider")
         impacto = simular_reducao_no_show(df, reducao / 100.0)
-        st.success(f"Receita recuperável estimada: **R$ {impacto:,.0f}**".replace(",", "."))
+        st.markdown(
+            kpi_card("💰", "Receita recuperável estimada",
+                     f"R$ {impacto:,.0f}".replace(",", "."),
+                     sublabel=f"com {reducao}% de redução no no-show",
+                     color="#089489"),
+            unsafe_allow_html=True,
+        )

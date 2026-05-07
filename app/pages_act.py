@@ -4,6 +4,7 @@ import pandas as pd
 
 from utils.kpis import priorizar_acoes, simular_reducao_no_show
 from utils.model import treinar_modelo_no_show, pontuar_risco_no_show
+from utils.components import protocol_blocks, kpi_card, kpi_row
 
 
 # Custos unitários de intervenção (referência operacional)
@@ -21,28 +22,12 @@ def render_act(df):
     )
 
     # ======================
-    # PROTOCOLO DE AÇÃO (tabela fixa no topo — feedback do professor)
+    # PROTOCOLO DE AÇÃO (blocos visuais)
     # ======================
     st.markdown("### Protocolo padrão de intervenção")
-    st.caption("Referência imutável: toda decisão de acionamento segue esta tabela.")
+    st.caption("Referência imutável: toda decisão de acionamento segue estes critérios.")
 
-    protocolo = pd.DataFrame({
-        "Nível de Risco": ["🟢 Baixo", "🟠 Moderado", "🔴 Alto"],
-        "Faixa de Probabilidade": ["< 30%", "30–60%", "> 60%"],
-        "Ação Recomendada": ["Lembrete padrão", "Confirmação ativa", "Contato humano"],
-        "Canal": ["SMS", "WhatsApp", "Ligação"],
-        "Timing": ["24h antes", "48h antes", "72h antes"],
-        "Custo unitário": ["R$ 0,10", "R$ 0,50", "R$ 8,00"],
-    })
-    st.table(protocolo)
-
-    st.info(
-        "**Lógica do protocolo:**\n"
-        "- **Baixo risco** → automação total: SMS de lembrete sem custo humano.\n"
-        "- **Moderado** → automação ativa: WhatsApp com confirmação (resposta esperada).\n"
-        "- **Alto risco + 60+ anos** → ligação manual: maior eficácia para público mais vulnerável ao no-show.\n"
-        "- **Alto risco + <60 anos** → WhatsApp + SMS combinados (pressão dupla sem custo de ligação)."
-    )
+    st.markdown(protocol_blocks(), unsafe_allow_html=True)
 
     st.divider()
 
@@ -169,10 +154,18 @@ def render_act(df):
     no_shows_geral = round(sum(tmp["risco_no_show"]))
     perda_geral = no_shows_geral * valor_medio
 
-    col_c1, col_c2, col_c3 = st.columns(3)
-    col_c1.metric("Custo total de intervenção", f"R$ {custo_total_geral:,.0f}".replace(",", "."))
-    col_c2.metric("No-shows estimados (evitáveis)", f"{no_shows_geral:,}".replace(",", "."))
-    col_c3.metric("Perda evitável (R$)", f"R$ {perda_geral:,.0f}".replace(",", "."))
+    cards_roi = [
+        kpi_card("💸", "Custo total de intervenção",
+                 f"R$ {custo_total_geral:,.0f}".replace(",", "."),
+                 sublabel="SMS + WhatsApp + ligações", color="#9333ea"),
+        kpi_card("🚨", "No-shows estimados",
+                 f"{no_shows_geral:,}".replace(",", "."),
+                 sublabel="evitáveis com intervenção", color="#d32f2f"),
+        kpi_card("💰", "Perda evitável",
+                 f"R$ {perda_geral:,.0f}".replace(",", "."),
+                 sublabel="receita em risco no período", color="#089489"),
+    ]
+    st.markdown(kpi_row(cards_roi), unsafe_allow_html=True)
 
     # ======================
     # RESUMO DE CARGA OPERACIONAL
@@ -186,12 +179,19 @@ def render_act(df):
     manual = int((tmp["execucao"] == "Manual (analista)").sum())
     auto = int((tmp["execucao"] == "Automático (bot)").sum())
 
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Total", f"{total:,}".replace(",", "."))
-    k2.metric("Alto risco", f"{alto:,}".replace(",", "."), f"{(alto/total if total else 0):.1%}")
-    k3.metric("Moderado", f"{moderado:,}".replace(",", "."), f"{(moderado/total if total else 0):.1%}")
-    k4.metric("Baixo risco", f"{baixo:,}".replace(",", "."), f"{(baixo/total if total else 0):.1%}")
-    k5.metric("Ligações manuais", f"{manual:,}".replace(",", "."), f"{(manual/total if total else 0):.1%}")
+    cards_op = [
+        kpi_card("📋", "Total agendamentos", f"{total:,}".replace(",", "."),
+                 sublabel="no período filtrado"),
+        kpi_card("🔴", "Alto risco", f"{alto:,}".replace(",", "."),
+                 sublabel=f"{(alto/total if total else 0):.1%} do total", color="#d32f2f"),
+        kpi_card("🟠", "Risco moderado", f"{moderado:,}".replace(",", "."),
+                 sublabel=f"{(moderado/total if total else 0):.1%} do total", color="#f57c00"),
+        kpi_card("🟢", "Baixo risco", f"{baixo:,}".replace(",", "."),
+                 sublabel=f"{(baixo/total if total else 0):.1%} do total", color="#388e3c"),
+        kpi_card("📞", "Ligações manuais", f"{manual:,}".replace(",", "."),
+                 sublabel=f"{(manual/total if total else 0):.1%} — custo maior", color="#7c3aed"),
+    ]
+    st.markdown(kpi_row(cards_op), unsafe_allow_html=True)
 
     st.caption(
         f"Automático (bot): **{auto}** casos — zero custo humano. "

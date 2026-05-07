@@ -154,6 +154,79 @@ def apply_global_style():
             .js-plotly-plot .plotly .main-svg {{
                 background: transparent !important;
             }}
+
+            /* ── KPI Cards ─────────────────────────────────────── */
+            .genesis-kpi-row {{
+                display: flex;
+                gap: 14px;
+                flex-wrap: wrap;
+                margin: 10px 0 18px 0;
+            }}
+            .genesis-kpi-card {{
+                flex: 1;
+                min-width: 150px;
+                background: rgba(255,255,255,0.80);
+                border-radius: 14px;
+                padding: 18px 16px 14px 16px;
+                border: 1px solid rgba(31,41,55,0.08);
+                box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                transition: box-shadow .2s;
+            }}
+            .genesis-kpi-card:hover {{
+                box-shadow: 0 4px 18px rgba(8,148,137,0.13);
+            }}
+            .genesis-kpi-icon {{
+                font-size: 1.5em;
+                margin-bottom: 6px;
+            }}
+            .genesis-kpi-label {{
+                font-size: 0.78em;
+                text-transform: uppercase;
+                letter-spacing: 0.6px;
+                color: {TEXT_MUTED};
+                margin-bottom: 4px;
+                font-weight: 600;
+            }}
+            .genesis-kpi-value {{
+                font-size: 1.9em;
+                font-weight: 800;
+                line-height: 1.1;
+                letter-spacing: -0.5px;
+            }}
+            .genesis-kpi-sub {{
+                font-size: 0.78em;
+                color: {TEXT_MUTED};
+                margin-top: 5px;
+            }}
+
+            /* ── Metric badge chips ─────────────────────────────── */
+            .genesis-metric-row {{
+                display: flex;
+                gap: 10px;
+                flex-wrap: wrap;
+                margin: 8px 0 14px 0;
+            }}
+            .genesis-metric-chip {{
+                background: rgba(8,148,137,0.08);
+                border: 1px solid rgba(8,148,137,0.18);
+                border-radius: 10px;
+                padding: 8px 14px;
+                text-align: center;
+            }}
+            .genesis-metric-chip-label {{
+                font-size: 0.72em;
+                text-transform: uppercase;
+                letter-spacing: .5px;
+                color: {TEXT_MUTED};
+                font-weight: 600;
+            }}
+            .genesis-metric-chip-value {{
+                font-size: 1.15em;
+                font-weight: 800;
+                color: {TITLE_GREEN};
+            }}
         </style>
         """,
         unsafe_allow_html=True

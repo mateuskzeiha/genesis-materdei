@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 
 from utils.styling import apply_global_style
+from utils.components import genesis_header
 from utils.data_loader import load_data
 from app.pages_exec import render_exec_overview
 from app.pages_reveal import render_reveal
@@ -24,8 +25,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ✅ agora não passa mais logo_path
 apply_global_style()
+st.markdown(genesis_header(), unsafe_allow_html=True)
 
 st.sidebar.header("Filtros")
 

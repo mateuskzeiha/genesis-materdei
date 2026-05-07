@@ -2,6 +2,7 @@ import streamlit as st
 import plotly.express as px
 
 from utils.model import treinar_modelo_no_show, pontuar_risco_no_show
+from utils.components import patient_card
 
 
 def _acao_por_risco(risco: float) -> tuple[str, str]:
@@ -39,20 +40,27 @@ def render_predict(df):
         # AUC explicado
         st.info(f"📊 {model_pack['auc_explanation']}")
 
-        # Linha de métricas
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("AUC", f"{auc:.3f}")
-        m2.metric("F1-score (no-show)", f"{model_pack['f1']:.3f}")
-        m3.metric("Precisão", f"{model_pack['precision']:.3f}")
-        m4.metric("Recall", f"{model_pack['recall']:.3f}")
+        # Chips de métricas
+        chips = [
+            ("AUC", f"{auc:.3f}"),
+            ("F1-score", f"{model_pack['f1']:.3f}"),
+            ("Precisão", f"{model_pack['precision']:.3f}"),
+            ("Recall", f"{model_pack['recall']:.3f}"),
+            ("Base", f"{model_pack['n_train']:,}".replace(",", ".")),
+        ]
+        chips_html = "".join(
+            f'<div class="genesis-metric-chip">'
+            f'<div class="genesis-metric-chip-label">{lbl}</div>'
+            f'<div class="genesis-metric-chip-value">{val}</div>'
+            f'</div>'
+            for lbl, val in chips
+        )
+        st.markdown(f'<div class="genesis-metric-row">{chips_html}</div>', unsafe_allow_html=True)
 
         st.caption(
-            "**Como ler as métricas:**\n"
-            "- **AUC**: capacidade de ordenar risco (0,5 = aleatório, 1,0 = perfeito)\n"
-            "- **F1-score**: equilíbrio entre precisão e recall para a classe *faltou*\n"
-            "- **Precisão**: dos marcados como risco, quantos realmente faltaram\n"
-            "- **Recall**: dos que faltaram, quantos o modelo identificou\n"
-            f"- **Base de treino/validação**: {model_pack['n_train']:,} agendamentos"
+            "AUC = capacidade de ordenar risco (0,5 aleatório → 1,0 perfeito). "
+            "F1/Precisão/Recall medem performance na classe *faltou* ao threshold 0,5. "
+            "Base = agendamentos usados no treino+validação."
         )
 
         st.divider()
@@ -175,39 +183,8 @@ def render_predict(df):
         idade = int(top1.get("idade", 0))
         id_mask = f"PAC-{str(int(top1['id_agendamento']))[-5:]}"
 
-        faixa_label, acao = _acao_por_risco(risco_val)
-
-        if faixa_label == "ALTO":
-            borda_cor = "#d32f2f"
-            fundo_cor = "#fff5f5"
-            emoji = "🔴"
-        elif faixa_label == "MODERADO":
-            borda_cor = "#f57c00"
-            fundo_cor = "#fff8f0"
-            emoji = "🟠"
-        else:
-            borda_cor = "#388e3c"
-            fundo_cor = "#f5fff5"
-            emoji = "🟢"
-
         st.markdown(
-            f"""
-<div style="border: 2px solid {borda_cor}; border-radius: 12px; padding: 20px;
-     background: {fundo_cor}; max-width: 520px;">
-  <h4 style="margin: 0 0 12px 0; color: #222;">{emoji} Paciente {id_mask} — {idade} anos</h4>
-  <p style="margin: 6px 0; font-size: 1.1em;">
-    <b>Risco de no-show:</b>
-    <span style="font-size: 1.5em; font-weight: bold; color: {borda_cor};">{risco_pct:.1f}%</span>
-    &nbsp;<span style="background:{borda_cor}; color:#fff; border-radius:4px;
-    padding: 2px 8px; font-size: 0.85em;">{faixa_label}</span>
-  </p>
-  <p style="margin: 6px 0;"><b>Antecedência:</b> {antecedencia} dias até a consulta</p>
-  <p style="margin: 6px 0;"><b>Canal atual:</b> {canal}</p>
-  <p style="margin: 12px 0 0 0; font-size: 1.05em; border-top: 1px solid {borda_cor}; padding-top: 10px;">
-    ✅ <b>Ação recomendada:</b> {acao}
-  </p>
-</div>
-""",
+            patient_card(id_mask, idade, risco_pct, antecedencia, canal),
             unsafe_allow_html=True,
         )
 
