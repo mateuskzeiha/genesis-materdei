@@ -27,7 +27,7 @@ def render_exec_overview(df):
     cards = [
         kpi_card("📅", "Agendamentos", f"{kpis['agendados']:,}".replace(",", "."),
                  sublabel="no período filtrado"),
-        kpi_card("✅", "Comparecimento", f"{taxa_comp:.1%}",
+        kpi_card("✅", "Compareceu", f"{taxa_comp:.1%}",
                  sublabel=f"{kpis['compareceram']:,} pacientes".replace(",", "."),
                  color="#388e3c"),
         kpi_card("⚠️", "No-show", f"{taxa_no_show:.1%}",

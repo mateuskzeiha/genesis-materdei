@@ -152,7 +152,7 @@ def genesis_header() -> str:
        border-radius:12px; display:flex; align-items:center; justify-content:center;
        font-size:1.6em; flex-shrink:0;">🏥</div>
   <div>
-    <div style="font-size:1.6em; font-weight:800; color:{PRIMARY}; line-height:1.1;
+    <div translate="no" style="font-size:1.6em; font-weight:800; color:{PRIMARY}; line-height:1.1;
          letter-spacing:-0.5px;">Genesis</div>
     <div style="font-size:0.85em; color:{TEXT_MUTED};">
       Redução de No-show &amp; Eficiência de Agenda &nbsp;·&nbsp; Mater Dei &nbsp;·&nbsp; Sprint 3
