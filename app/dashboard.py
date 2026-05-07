@@ -1,4 +1,10 @@
 import os
+import sys
+
+# Garante que a raiz do projeto (genesis-materdei/) está no path,
+# independente de onde o streamlit é chamado
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import streamlit as st
 
 from utils.styling import apply_global_style

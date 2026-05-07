@@ -4,96 +4,110 @@ import plotly.express as px
 from utils.model import treinar_modelo_no_show, pontuar_risco_no_show
 
 
+def _acao_por_risco(risco: float) -> tuple[str, str]:
+    """Retorna (label_faixa, descricao_acao) baseado no score."""
+    if risco >= 0.60:
+        return "ALTO", "Ligação humana — contato direto (72h antes)"
+    if risco >= 0.30:
+        return "MODERADO", "WhatsApp — confirmação ativa (48h antes)"
+    return "BAIXO", "SMS — lembrete padrão (24h antes)"
+
+
 def render_predict(df):
     st.subheader("Predict — Risco de No-show")
 
     st.caption(
-        "Objetivo desta aba: **priorizar quem contatar primeiro** (confirmação/WhatsApp/SMS/ligação) "
-        "para reduzir no-show com o menor esforço possível."
+        "Objetivo desta aba: **identificar quem tem maior chance de faltar** e "
+        "priorizar quem acionar — com o canal e timing certo para cada nível de risco."
     )
 
     colA, colB = st.columns([1.2, 1])
 
     # ======================
-    # COLUNA A — Modelo + fatores
+    # COLUNA A — Modelo + métricas + fatores
     # ======================
     with colA:
         model_pack = treinar_modelo_no_show(df)
         if model_pack is None:
-            st.warning("Sem dados suficientes para treinar modelo.")
+            st.warning("Sem dados suficientes para treinar modelo (mínimo 500 registros).")
             return
 
-        auc = float(model_pack["auc"])
+        auc = model_pack["auc"]
 
-        st.markdown("### Qualidade do modelo (AUC na validação)")
+        st.markdown("### Qualidade do modelo (métricas de validação)")
+
+        # AUC explicado
+        st.info(f"📊 {model_pack['auc_explanation']}")
+
+        # Linha de métricas
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("AUC", f"{auc:.3f}")
+        m2.metric("F1-score (no-show)", f"{model_pack['f1']:.3f}")
+        m3.metric("Precisão", f"{model_pack['precision']:.3f}")
+        m4.metric("Recall", f"{model_pack['recall']:.3f}")
+
         st.caption(
-            "**AUC** mede a capacidade do modelo de separar quem **vai faltar** de quem **vai comparecer**.\n"
-            "- **0,50** = chute (aleatório)\n"
-            "- **0,65–0,75** = bom para priorização operacional\n"
-            f"- **Seu AUC: {auc:.3f}** = já útil para ordenar atendimento e focar esforço onde importa"
+            "**Como ler as métricas:**\n"
+            "- **AUC**: capacidade de ordenar risco (0,5 = aleatório, 1,0 = perfeito)\n"
+            "- **F1-score**: equilíbrio entre precisão e recall para a classe *faltou*\n"
+            "- **Precisão**: dos marcados como risco, quantos realmente faltaram\n"
+            "- **Recall**: dos que faltaram, quantos o modelo identificou\n"
+            f"- **Base de treino/validação**: {model_pack['n_train']:,} agendamentos"
         )
-        st.metric("AUC (validação)", f"{auc:.3f}")
 
         st.divider()
 
-        st.markdown("### O que mais influencia o risco de no-show (explicação do modelo)")
+        st.markdown("### Fatores que mais influenciam o risco de no-show")
         st.caption(
-            "Este gráfico mostra os **fatores que o modelo mais usa** para estimar risco.\n"
-            "Importante: não é “culpa” do fator — é **padrão estatístico na base**.\n"
-            "**Como ler:** barra maior = maior peso na previsão (impacta mais o score de risco)."
+            "Barra maior = fator com maior peso na previsão. "
+            "Isso não é causalidade — é padrão estatístico detectado na base."
         )
 
-        # Renomeia colunas para português
         fi = model_pack["feature_importance"].copy()
-        fi = fi.rename(columns={"feature": "Fator (o que o modelo usa)", "importance": "Peso na previsão"})
 
-        # Traduções e limpeza de nomes para ficar humano
         def traduzir_feature(nome: str) -> str:
             n = str(nome)
-
-            # One-hot do bairro/canal
             n = n.replace("canal_confirmacao_", "Canal: ")
             n = n.replace("bairro_", "Bairro: ")
-
-            # Numéricos
             n = n.replace("idade_60_mais", "Idade 60+ (sim/não)")
-            n = n.replace("idade", "Idade")
+            n = n.replace("historico_no_show", "Histórico de no-show")
+            n = n.replace("hora_agendamento", "Hora do agendamento")
+            n = n.replace("dia_semana", "Dia da semana")
             n = n.replace("antecedencia_dias", "Antecedência (dias)")
             n = n.replace("antecedencia_minutos", "Antecedência (minutos)")
-
+            n = n.replace("idade", "Idade")
             return n
 
-        fi["Fator (o que o modelo usa)"] = fi["Fator (o que o modelo usa)"].apply(traduzir_feature)
+        fi["feature"] = fi["feature"].apply(traduzir_feature)
+        fi = fi.rename(columns={"feature": "Fator", "importance": "Peso"})
 
         fig = px.bar(
             fi,
-            x="Peso na previsão",
-            y="Fator (o que o modelo usa)",
+            x="Peso",
+            y="Fator",
             orientation="h",
-            title="Fatores com maior impacto na previsão de no-show (proxy)",
+            title="Importância dos fatores (RandomForest)",
         )
-        fig.update_layout(height=430, margin=dict(l=10, r=10, t=60, b=10))
+        fig.update_layout(height=420, margin=dict(l=10, r=10, t=60, b=10))
         st.plotly_chart(fig, use_container_width=True)
 
         st.info(
-            "**O que significa na prática (bem direto):**\n"
-            "- **Bairro**: não é “o bairro causa no-show”. Ele funciona como **proxy** de padrões reais (acesso, distância, perfil socioeconômico, logística). "
-            "Se um bairro aparece forte, é um sinal de que ali existe um comportamento diferente na base.\n"
-            "- **Canal: SMS / Sem SMS**: é um proxy de **estratégia de confirmação**. Se “Sem SMS” pesa, sugere que lembrete/confirmação tem efeito.\n"
-            "- **Antecedência**: marcar muito antes pode aumentar chance de esquecer/mudar plano; isso costuma subir o risco.\n"
-            "- **Idade (60+)**: pode demandar comunicação mais clara e ativa (ex.: ligação humana em casos críticos)."
+            "**Interpretação prática:**\n"
+            "- **Histórico de no-show**: paciente que já faltou antes tem maior risco — "
+            "esse é o fator mais acionável (permite segmentação direta).\n"
+            "- **Antecedência**: marcar muito antes aumenta o risco de esquecer ou mudar de plano.\n"
+            "- **Canal: Sem SMS**: ausência de lembrete ativo eleva o risco — reforça a importância do contato.\n"
+            "- **Bairro**: proxy de distância, acesso e perfil logístico — não é estigma, é sinal operacional."
         )
 
     # ======================
     # COLUNA B — Distribuição + lista de ação
     # ======================
     with colB:
-        st.markdown("### Distribuição do risco de no-show (na base filtrada)")
+        st.markdown("### Distribuição do score de risco")
         st.caption(
-            "Este histograma mostra **quantos pacientes estão em cada nível de risco**.\n"
-            "**Como ler:**\n"
-            "- Quanto mais barras no lado direito, mais casos de alto risco.\n"
-            "- Use isso para **dimensionar esforço** (ex.: quantos ligar hoje / quantos automatizar)."
+            "Histograma de quantos pacientes estão em cada nível de risco. "
+            "Barras à direita = mais casos de alto risco no período filtrado."
         )
 
         scored = pontuar_risco_no_show(df, model_pack)
@@ -105,41 +119,118 @@ def render_predict(df):
             scored,
             x="risco_no_show",
             nbins=20,
-            title="Distribuição do score de risco (0 = baixo, 1 = alto)",
-            labels={"risco_no_show": "Score de risco de no-show (0 a 1)"},
+            title="Score de risco (0 = baixo, 1 = alto)",
+            labels={"risco_no_show": "Score de risco de no-show"},
         )
-        fig.update_layout(height=310, margin=dict(l=10, r=10, t=60, b=10))
+        fig.add_vline(x=0.30, line_dash="dash", line_color="orange",
+                      annotation_text="30%", annotation_position="top")
+        fig.add_vline(x=0.60, line_dash="dash", line_color="red",
+                      annotation_text="60%", annotation_position="top")
+        fig.update_layout(height=300, margin=dict(l=10, r=10, t=60, b=10))
         st.plotly_chart(fig, use_container_width=True)
 
-        # regra simples de “alto risco” para ficar autoexplicável
         limiar = st.slider(
-            "Limiar para considerar 'alto risco' (0 a 1)",
+            "Limiar para 'alto risco'",
             0.50, 0.95, 0.75, 0.01,
             key="predict_limiar_alto_risco"
         )
-        qtd_alto_risco = int((scored["risco_no_show"] >= limiar).sum())
+        qtd_alto = int((scored["risco_no_show"] >= limiar).sum())
         total = len(scored)
 
         st.success(
-            f"**Alto risco (≥ {limiar:.2f}): {qtd_alto_risco} de {total} agendamentos** "
-            f"({(qtd_alto_risco/total if total else 0):.1%})."
+            f"**Alto risco (≥ {limiar:.0%}): {qtd_alto} de {total}** "
+            f"({(qtd_alto / total if total else 0):.1%})"
         )
 
-        st.markdown("### Top 15 para intervenção (lista acionável)")
-        st.caption(
-            "Aqui está o que vira ação: **quem contatar primeiro**.\n"
-            "Sugestão prática: priorize **alto risco** com ligação ou confirmação dupla; risco médio com automação."
-        )
+        st.markdown("### Top 15 para intervenção imediata")
+        st.caption("Quem contatar primeiro — ordenado por maior score de risco.")
 
         top = scored.sort_values("risco_no_show", ascending=False).head(15)[
-            ["id_agendamento", "idade", "canal_confirmacao", "bairro", "antecedencia_dias", "risco_no_show"]
+            ["id_agendamento", "idade", "canal_confirmacao", "antecedencia_dias", "risco_no_show"]
         ].rename(columns={
             "id_agendamento": "ID",
             "idade": "Idade",
             "canal_confirmacao": "Canal",
-            "bairro": "Bairro",
             "antecedencia_dias": "Antecedência (dias)",
             "risco_no_show": "Risco (0-1)",
         })
-
         st.dataframe(top, use_container_width=True)
+
+    # ======================
+    # SEÇÃO ABAIXO DAS COLUNAS — Exemplo prático
+    # ======================
+    st.divider()
+    st.markdown("## Exemplo prático — Paciente de maior risco no período")
+    st.caption(
+        "Este é o caso mais urgente entre os agendamentos filtrados. "
+        "Mostra como o modelo se traduz em ação concreta para o time operacional."
+    )
+
+    if scored is not None and len(scored) > 0:
+        top1 = scored.sort_values("risco_no_show", ascending=False).iloc[0]
+        risco_val = float(top1["risco_no_show"])
+        risco_pct = risco_val * 100
+        antecedencia = int(top1.get("antecedencia_dias", 0))
+        canal = str(top1.get("canal_confirmacao", "N/D"))
+        idade = int(top1.get("idade", 0))
+        id_mask = f"PAC-{str(int(top1['id_agendamento']))[-5:]}"
+
+        faixa_label, acao = _acao_por_risco(risco_val)
+
+        if faixa_label == "ALTO":
+            borda_cor = "#d32f2f"
+            fundo_cor = "#fff5f5"
+            emoji = "🔴"
+        elif faixa_label == "MODERADO":
+            borda_cor = "#f57c00"
+            fundo_cor = "#fff8f0"
+            emoji = "🟠"
+        else:
+            borda_cor = "#388e3c"
+            fundo_cor = "#f5fff5"
+            emoji = "🟢"
+
+        st.markdown(
+            f"""
+<div style="border: 2px solid {borda_cor}; border-radius: 12px; padding: 20px;
+     background: {fundo_cor}; max-width: 520px;">
+  <h4 style="margin: 0 0 12px 0; color: #222;">{emoji} Paciente {id_mask} — {idade} anos</h4>
+  <p style="margin: 6px 0; font-size: 1.1em;">
+    <b>Risco de no-show:</b>
+    <span style="font-size: 1.5em; font-weight: bold; color: {borda_cor};">{risco_pct:.1f}%</span>
+    &nbsp;<span style="background:{borda_cor}; color:#fff; border-radius:4px;
+    padding: 2px 8px; font-size: 0.85em;">{faixa_label}</span>
+  </p>
+  <p style="margin: 6px 0;"><b>Antecedência:</b> {antecedencia} dias até a consulta</p>
+  <p style="margin: 6px 0;"><b>Canal atual:</b> {canal}</p>
+  <p style="margin: 12px 0 0 0; font-size: 1.05em; border-top: 1px solid {borda_cor}; padding-top: 10px;">
+    ✅ <b>Ação recomendada:</b> {acao}
+  </p>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+        st.divider()
+        st.markdown("### Top 10 pacientes de alto risco — fila acionável")
+        st.caption(
+            "Tabela resumida para o time operacional: risco, antecedência e ação recomendada "
+            "para cada paciente — pronta para impressão ou repasse ao call center."
+        )
+
+        top10 = scored.sort_values("risco_no_show", ascending=False).head(10).copy()
+        top10["Risco"] = (top10["risco_no_show"] * 100).round(1).astype(str) + "%"
+        top10["Faixa"] = top10["risco_no_show"].apply(lambda r: _acao_por_risco(r)[0])
+        top10["Ação recomendada"] = top10["risco_no_show"].apply(lambda r: _acao_por_risco(r)[1])
+
+        cols_show = {
+            "id_agendamento": "ID",
+            "idade": "Idade",
+            "canal_confirmacao": "Canal atual",
+            "antecedencia_dias": "Antecedência (dias)",
+            "Risco": "Risco",
+            "Faixa": "Faixa",
+            "Ação recomendada": "Ação recomendada",
+        }
+        top10_view = top10[[c for c in cols_show if c in top10.columns or c in ["Risco", "Faixa", "Ação recomendada"]]].rename(columns=cols_show)
+        st.dataframe(top10_view, use_container_width=True, hide_index=True)

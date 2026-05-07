@@ -3,13 +3,6 @@ import pandas as pd
 
 
 def _resolve_path() -> str:
-    """
-    Resolve o caminho do CSV automaticamente.
-    Prioriza:
-    1) data/raw/noshowappointments.csv
-    2) data/noshowappointments.csv
-    """
-
     path_raw = os.path.join("data", "raw", "noshowappointments.csv")
     path_simple = os.path.join("data", "noshowappointments.csv")
 
@@ -29,15 +22,9 @@ def _resolve_path() -> str:
 
 
 def load_data() -> pd.DataFrame:
-    """
-    Carrega o dataset do Kaggle (No-show appointments) e normaliza
-    para modelo executivo em português.
-    """
-
     DATA_PATH = _resolve_path()
     df = pd.read_csv(DATA_PATH)
 
-    # Datas
     df["ScheduledDay"] = pd.to_datetime(df["ScheduledDay"], utc=True, errors="coerce")
     df["AppointmentDay"] = pd.to_datetime(df["AppointmentDay"], utc=True, errors="coerce")
 
@@ -45,8 +32,13 @@ def load_data() -> pd.DataFrame:
 
     # Identificadores e datas
     out["id_agendamento"] = df["AppointmentID"].astype(int)
+    out["id_paciente"] = df["PatientId"].fillna(0).astype(float).astype("int64").astype(str)
     out["data_agendamento"] = df["ScheduledDay"].dt.date
     out["data_consulta"] = df["AppointmentDay"].dt.date
+
+    # Hora do agendamento e dia da semana (features para o modelo)
+    out["hora_agendamento"] = df["ScheduledDay"].dt.hour.fillna(0).astype(int)
+    out["dia_semana"] = df["AppointmentDay"].dt.dayofweek.fillna(0).astype(int)  # 0=Seg, 6=Dom
 
     # Perfil
     out["idade"] = df["Age"].clip(lower=0)
@@ -70,7 +62,6 @@ def load_data() -> pd.DataFrame:
         (df["AppointmentDay"] - df["ScheduledDay"])
         .dt.total_seconds() / 60.0
     )
-
     delta_minutes = delta_minutes.fillna(0).clip(lower=0)
 
     out["antecedencia_minutos"] = delta_minutes.round().astype(int)
@@ -94,5 +85,22 @@ def load_data() -> pd.DataFrame:
 
     # Proxy de valor
     out["valor_medio"] = 150.0
+
+    # Histórico de no-show por paciente: quantas vezes faltou ANTES desta consulta
+    # (ordenado cronologicamente para evitar data leakage)
+    _tmp = out.sort_values(["id_paciente", "data_agendamento"]).copy()
+    _tmp["historico_no_show"] = (
+        _tmp.groupby("id_paciente")["faltou"]
+        .cumsum()
+        .shift(1)
+        .fillna(0)
+        .astype(int)
+    )
+    out = out.merge(
+        _tmp[["id_agendamento", "historico_no_show"]],
+        on="id_agendamento",
+        how="left",
+    )
+    out["historico_no_show"] = out["historico_no_show"].fillna(0).astype(int)
 
     return out

@@ -1,28 +1,48 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
 *.log
 
-# Venv
+# Ambientes virtuais
 .venv/
-.venv-1/
 venv/
 env/
+ENV/
 
 # Streamlit
 .streamlit/
 
-# VSCode
+# Dados sensíveis / grandes (não versionar o CSV)
+data/raw/*.csv
+data/*.csv
+
+# IDEs
 .vscode/
+.idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
-.venv/
-__pycache__/
-*.pyc
-.env
-.streamlit/
+desktop.ini
 
+# Env vars
+.env
+.env.local
+*.env
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Pytest / coverage
+.coverage
+htmlcov/
+.pytest_cache/

@@ -1,0 +1,30 @@
+== COMO RODAR O GENESIS ==
+
+1. Instalar dependências (apenas na primeira vez):
+   pip install -r requirements.txt
+
+2. Rodar o dashboard:
+   streamlit run app\dashboard.py
+
+   O app abre automaticamente em http://localhost:8501
+
+== PRÉ-REQUISITO: DADOS ==
+
+Baixe o CSV do Kaggle e coloque em:
+   data/raw/noshowappointments.csv
+
+Link: https://www.kaggle.com/datasets/joniarroba/noshowappointments
+
+== AMBIENTE VIRTUAL (opcional, recomendado) ==
+
+Windows:
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   streamlit run app/dashboard.py
+
+Mac/Linux:
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   streamlit run app/dashboard.py

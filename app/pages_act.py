@@ -1,20 +1,53 @@
 import streamlit as st
 import plotly.express as px
+import pandas as pd
 
 from utils.kpis import priorizar_acoes, simular_reducao_no_show
 from utils.model import treinar_modelo_no_show, pontuar_risco_no_show
 
 
+# Custos unitários de intervenção (referência operacional)
+CUSTO_SMS = 0.10        # R$ por SMS
+CUSTO_WHATSAPP = 0.50   # R$ por mensagem WhatsApp
+CUSTO_LIGACAO = 8.00    # R$ por ligação (tempo de analista ~3 min)
+
+
 def render_act(df):
-    st.subheader("Act — Plano de ação (fila de trabalho para reduzir no-show)")
+    st.subheader("Act — Plano de Ação Operacional")
 
     st.caption(
-        "Aqui vira operação: **quem acionar**, **como acionar** e **qual esforço** (bot vs ligação). "
-        "A lógica é baseada no **score de risco** do Predict."
+        "Esta aba traduz o risco em operação: **quem acionar, por qual canal e quando**. "
+        "O protocolo abaixo define o padrão — a fila de trabalho implementa automaticamente."
     )
 
     # ======================
-    # 1) Gerar score de risco (reutiliza modelo do Predict)
+    # PROTOCOLO DE AÇÃO (tabela fixa no topo — feedback do professor)
+    # ======================
+    st.markdown("### Protocolo padrão de intervenção")
+    st.caption("Referência imutável: toda decisão de acionamento segue esta tabela.")
+
+    protocolo = pd.DataFrame({
+        "Nível de Risco": ["🟢 Baixo", "🟠 Moderado", "🔴 Alto"],
+        "Faixa de Probabilidade": ["< 30%", "30–60%", "> 60%"],
+        "Ação Recomendada": ["Lembrete padrão", "Confirmação ativa", "Contato humano"],
+        "Canal": ["SMS", "WhatsApp", "Ligação"],
+        "Timing": ["24h antes", "48h antes", "72h antes"],
+        "Custo unitário": ["R$ 0,10", "R$ 0,50", "R$ 8,00"],
+    })
+    st.table(protocolo)
+
+    st.info(
+        "**Lógica do protocolo:**\n"
+        "- **Baixo risco** → automação total: SMS de lembrete sem custo humano.\n"
+        "- **Moderado** → automação ativa: WhatsApp com confirmação (resposta esperada).\n"
+        "- **Alto risco + 60+ anos** → ligação manual: maior eficácia para público mais vulnerável ao no-show.\n"
+        "- **Alto risco + <60 anos** → WhatsApp + SMS combinados (pressão dupla sem custo de ligação)."
+    )
+
+    st.divider()
+
+    # ======================
+    # GERAR SCORE DE RISCO
     # ======================
     model_pack = treinar_modelo_no_show(df)
     if model_pack is None:
@@ -27,114 +60,151 @@ def render_act(df):
         return
 
     # ======================
-    # 2) Definir faixas de risco (alto / moderado / baixo)
+    # CONFIGURAÇÃO DE FAIXAS
     # ======================
     st.markdown("### Configuração das faixas de risco")
     st.caption(
-        "Defina os limites das faixas. "
-        "Regra: **Alto risco ≥ limite alto**, **Moderado entre limites**, **Baixo abaixo do limite moderado**."
+        "Ajuste os limiares conforme a capacidade operacional do time. "
+        "Padrão do protocolo: moderado ≥ 30%, alto ≥ 60%."
     )
 
     cA, cB, cC = st.columns([1, 1, 1.2])
-
     with cA:
         limiar_moderado = st.slider(
-            "Limite do risco moderado",
-            0.30, 0.90, 0.55, 0.01,
+            "Limite risco moderado", 0.20, 0.70, 0.30, 0.01,
             key="act_limiar_moderado"
         )
-
     with cB:
         limiar_alto = st.slider(
-            "Limite do alto risco",
-            0.40, 0.95, 0.75, 0.01,
+            "Limite alto risco", 0.40, 0.95, 0.60, 0.01,
             key="act_limiar_alto"
         )
-
     with cC:
         st.info(
-            "Dica prática:\n"
-            "- Se sua operação tem pouca gente para ligar, suba o **limite alto**.\n"
-            "- Se dá para automatizar mais WhatsApp/SMS, baixe o **limite moderado**."
+            "Dica: se a fila de ligações for muito grande, **suba o limite alto**. "
+            "Se quiser ampliar WhatsApp automatizado, **baixe o moderado**."
         )
 
-    # Garante coerência (alto sempre >= moderado)
     if limiar_alto < limiar_moderado:
         limiar_alto = limiar_moderado
 
     # ======================
-    # 3) Rotular faixa + ação recomendada (o que você pediu)
+    # ROTULAR FAIXA + AÇÃO
     # ======================
     tmp = scored.copy()
 
     def faixa_risco(r: float) -> str:
         if r >= limiar_alto:
             return "ALTO"
-        elif r >= limiar_moderado:
+        if r >= limiar_moderado:
             return "MODERADO"
         return "BAIXO"
 
-    tmp["faixa_risco"] = tmp["risco_no_show"].apply(faixa_risco)
-
-    # Ações:
-    # - ALTO e <60: WhatsApp + SMS (bot)
-    # - ALTO e 60+: Ligação (manual)
-    # - MODERADO: WhatsApp (bot) + lembrete SMS padrão
-    # - BAIXO: lembrete SMS padrão
     def acao_recomendada(risco: float, idade_60_mais: int) -> str:
         if risco >= limiar_alto:
             if int(idade_60_mais) == 1:
-                return "Ligar (manual) — confirmação ativa"
+                return "Ligação (manual) — confirmação ativa"
             return "WhatsApp + SMS (bot) — confirmação dupla"
         if risco >= limiar_moderado:
-            return "WhatsApp (bot) + SMS padrão — confirmar"
+            return "WhatsApp (bot) + SMS padrão"
         return "SMS padrão — lembrete"
 
     def tipo_execucao(acao: str) -> str:
-        # Para você medir carga operacional
-        if "Ligar" in acao:
-            return "Manual (analista)"
-        return "Automático (bot)"
+        return "Manual (analista)" if "Ligar" in acao or "Ligação" in acao else "Automático (bot)"
 
+    def custo_unitario(acao: str) -> float:
+        if "Ligação" in acao or "Ligar" in acao:
+            return CUSTO_LIGACAO
+        if "WhatsApp" in acao:
+            return CUSTO_WHATSAPP + CUSTO_SMS  # combo
+        return CUSTO_SMS
+
+    tmp["faixa_risco"] = tmp["risco_no_show"].apply(faixa_risco)
     tmp["acao_recomendada"] = tmp.apply(
-        lambda row: acao_recomendada(row["risco_no_show"], row["idade_60_mais"]),
-        axis=1
+        lambda row: acao_recomendada(row["risco_no_show"], row["idade_60_mais"]), axis=1
     )
     tmp["execucao"] = tmp["acao_recomendada"].apply(tipo_execucao)
+    tmp["custo_intervencao"] = tmp["acao_recomendada"].apply(custo_unitario)
 
     # ======================
-    # 4) Resumo executivo: quantos casos por faixa + carga manual x bot
+    # RESUMO EXECUTIVO — QUANTOS CASOS
     # ======================
     st.divider()
-    st.markdown("### Visão rápida da operação (quantos casos e qual esforço)")
+    st.markdown("### Distribuição atual por faixa de risco")
+    st.caption(
+        "Breakdown dos agendamentos filtrados nas 3 faixas do protocolo, "
+        "com custo estimado de intervenção e perda financeira evitável."
+    )
 
     total = len(tmp)
+    valor_medio = float(df["valor_medio"].mean()) if "valor_medio" in df.columns else 150.0
+
+    faixas_info = []
+    for faixa, canal_label, custo_u in [
+        ("BAIXO", "SMS", CUSTO_SMS),
+        ("MODERADO", "WhatsApp", CUSTO_WHATSAPP + CUSTO_SMS),
+        ("ALTO", "Ligação / WhatsApp+SMS", CUSTO_LIGACAO),
+    ]:
+        sub = tmp[tmp["faixa_risco"] == faixa]
+        qtd = len(sub)
+        risco_medio = float(sub["risco_no_show"].mean()) if qtd > 0 else 0.0
+        no_shows_estimados = round(qtd * risco_medio)
+        custo_total = round(qtd * custo_u, 2)
+        perda_evitavel = round(no_shows_estimados * valor_medio, 2)
+        roi = perda_evitavel / custo_total if custo_total > 0 else 0.0
+        faixas_info.append({
+            "Faixa": faixa,
+            "Canal": canal_label,
+            "Qtd agendamentos": qtd,
+            "% do total": f"{(qtd / total * 100 if total else 0):.1f}%",
+            "No-shows estimados": no_shows_estimados,
+            "Custo intervenção (R$)": f"R$ {custo_total:,.2f}".replace(",", "."),
+            "Perda evitável (R$)": f"R$ {perda_evitavel:,.2f}".replace(",", "."),
+            "ROI estimado": f"{roi:.1f}x",
+        })
+
+    st.dataframe(pd.DataFrame(faixas_info), use_container_width=True, hide_index=True)
+
+    custo_total_geral = sum(tmp["custo_intervencao"])
+    no_shows_geral = round(sum(tmp["risco_no_show"]))
+    perda_geral = no_shows_geral * valor_medio
+
+    col_c1, col_c2, col_c3 = st.columns(3)
+    col_c1.metric("Custo total de intervenção", f"R$ {custo_total_geral:,.0f}".replace(",", "."))
+    col_c2.metric("No-shows estimados (evitáveis)", f"{no_shows_geral:,}".replace(",", "."))
+    col_c3.metric("Perda evitável (R$)", f"R$ {perda_geral:,.0f}".replace(",", "."))
+
+    # ======================
+    # RESUMO DE CARGA OPERACIONAL
+    # ======================
+    st.divider()
+    st.markdown("### Visão rápida da operação")
+
     alto = int((tmp["faixa_risco"] == "ALTO").sum())
     moderado = int((tmp["faixa_risco"] == "MODERADO").sum())
     baixo = int((tmp["faixa_risco"] == "BAIXO").sum())
-
     manual = int((tmp["execucao"] == "Manual (analista)").sum())
     auto = int((tmp["execucao"] == "Automático (bot)").sum())
 
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Total", f"{total:,}".replace(",", "."))
     k2.metric("Alto risco", f"{alto:,}".replace(",", "."), f"{(alto/total if total else 0):.1%}")
-    k3.metric("Risco moderado", f"{moderado:,}".replace(",", "."), f"{(moderado/total if total else 0):.1%}")
+    k3.metric("Moderado", f"{moderado:,}".replace(",", "."), f"{(moderado/total if total else 0):.1%}")
     k4.metric("Baixo risco", f"{baixo:,}".replace(",", "."), f"{(baixo/total if total else 0):.1%}")
-    k5.metric("Ligaçõ​es (manual)", f"{manual:,}".replace(",", "."), f"{(manual/total if total else 0):.1%}")
+    k5.metric("Ligações manuais", f"{manual:,}".replace(",", "."), f"{(manual/total if total else 0):.1%}")
 
     st.caption(
-        f"Automático (bot): **{auto}** casos | Manual (analista): **{manual}** casos. "
-        "Isso é a fila de trabalho real."
+        f"Automático (bot): **{auto}** casos — zero custo humano. "
+        f"Manual (analista): **{manual}** casos — fila priorizada abaixo."
     )
 
     # ======================
-    # 5) Ranking por faixa + idade (alto risco detalhado)
+    # RANKING POR FAIXA
     # ======================
     st.divider()
-    st.markdown("### Ranking de ações por faixa (guia para analistas)")
+    st.markdown("### Ranking de ações por segmento")
+    st.caption("Cada linha é um grupo de pacientes com a mesma ação recomendada — use para dimensionar o time.")
 
-    # visão agregada para facilitar “o que fazer primeiro”
     agg = tmp.groupby(["faixa_risco", "idade_60_mais", "acao_recomendada", "execucao"]).agg(
         qtd=("id_agendamento", "count"),
         risco_medio=("risco_no_show", "mean"),
@@ -142,61 +212,49 @@ def render_act(df):
     ).reset_index()
 
     agg["grupo_idade"] = agg["idade_60_mais"].apply(lambda x: "60+" if int(x) == 1 else "<60")
-
-    # ordenação: alto primeiro, depois moderado, depois baixo
     ordem = {"ALTO": 0, "MODERADO": 1, "BAIXO": 2}
     agg["ordem"] = agg["faixa_risco"].map(ordem).fillna(9)
     agg = agg.sort_values(["ordem", "qtd"], ascending=[True, False]).drop(columns=["ordem", "idade_60_mais"])
-
     agg = agg.rename(columns={
-        "faixa_risco": "Faixa de risco",
-        "grupo_idade": "Grupo idade",
+        "faixa_risco": "Faixa",
+        "grupo_idade": "Grupo etário",
         "acao_recomendada": "Ação recomendada",
         "execucao": "Execução",
         "qtd": "Qtd casos",
-        "risco_medio": "Risco médio (0-1)",
+        "risco_medio": "Risco médio",
         "antecedencia_media": "Antecedência média (dias)",
     })
-
-    st.dataframe(agg, use_container_width=True)
-
-    st.info(
-        "**Regra do ALTO risco (do jeito que você pediu):**\n"
-        "- **ALTO + <60** → **WhatsApp + SMS (bot)**\n"
-        "- **ALTO + 60+** → **Ligação (manual)**\n\n"
-        "Isso cria um roteiro claro para o time: bot onde dá escala, humano onde a chance de falha é mais cara."
-    )
+    st.dataframe(agg, use_container_width=True, hide_index=True)
 
     # ======================
-    # 6) Fila acionável (planilha/guia)
+    # FILA ACIONÁVEL
     # ======================
     st.divider()
-    st.markdown("### Fila de ação (planilha operacional)")
-
+    st.markdown("### Fila operacional (planilha para o analista)")
     st.caption(
-        "Esta tabela é a fila que o analista executa. "
-        "Ordenada por risco (maior primeiro)."
+        "Lista completa ordenada por risco decrescente. "
+        "Pronto para exportar e repassar ao call center ou bot."
     )
 
     fila = tmp.sort_values("risco_no_show", ascending=False)[
-        ["id_agendamento", "idade", "canal_confirmacao", "bairro", "antecedencia_dias", "faixa_risco", "acao_recomendada", "execucao", "risco_no_show"]
+        ["id_agendamento", "idade", "canal_confirmacao", "bairro",
+         "antecedencia_dias", "faixa_risco", "acao_recomendada", "execucao", "risco_no_show"]
     ].rename(columns={
         "id_agendamento": "ID",
         "idade": "Idade",
         "canal_confirmacao": "Canal",
         "bairro": "Bairro",
         "antecedencia_dias": "Antecedência (dias)",
-        "faixa_risco": "Faixa de risco",
+        "faixa_risco": "Faixa",
         "acao_recomendada": "Ação recomendada",
         "execucao": "Execução",
         "risco_no_show": "Risco (0-1)",
     })
 
-    st.dataframe(fila.head(200), use_container_width=True)
+    st.dataframe(fila.head(200), use_container_width=True, hide_index=True)
 
-    # Export CSV para operar (muito útil)
     st.download_button(
-        "Baixar fila completa (CSV)",
+        "⬇️ Baixar fila completa (CSV)",
         data=fila.to_csv(index=False).encode("utf-8"),
         file_name="fila_acao_no_show.csv",
         mime="text/csv",
@@ -204,35 +262,33 @@ def render_act(df):
     )
 
     # ======================
-    # 7) Mantém visão de clusters e ROI (como antes, só mais claro)
+    # CLUSTERS E ROI
     # ======================
     st.divider()
-    st.markdown("### Onde está a perda (clusters) e quanto recupera (ROI)")
+    st.markdown("### Onde está a perda estrutural (clusters) e quanto recupera")
+    st.caption("Cluster = bairro + canal. Use para ações estruturais além do caso individual.")
 
     prio = priorizar_acoes(df)
-
     left, right = st.columns([1.2, 1])
 
     with left:
         st.markdown("#### Ranking de clusters (Top 20)")
-        st.caption("Cluster = **bairro + canal**. Use para atacar causas estruturais (não só casos individuais).")
         st.dataframe(prio.head(20), use_container_width=True)
 
     with right:
         st.markdown("#### Pareto da perda estimada (Top 12)")
-        st.caption("Mostra onde poucos clusters concentram a maior parte do impacto financeiro.")
         pareto = prio.head(12).copy()
-        fig = px.bar(pareto, x="cluster", y="perda_estimada", labels={"perda_estimada": "Perda estimada (R$)"})
+        fig = px.bar(pareto, x="cluster", y="perda_estimada",
+                     labels={"perda_estimada": "Perda estimada (R$)"})
         fig.update_layout(height=360)
         st.plotly_chart(fig, use_container_width=True)
 
     st.divider()
-    st.markdown("### Simulação final (ROI direto)")
-    st.caption("Tradução para banca: reduzir no-show em X% = recuperar R$ Y no período.")
+    st.markdown("### Simulação de ROI — quanto recuperar ao reduzir no-show")
+    st.caption("Tradução para gestão: cada ponto percentual de redução equivale a R$ X de receita recuperada.")
 
     reducao = st.slider(
-        "Redução de no-show (%)",
-        0, 30, 5, 1,
+        "Redução de no-show (%)", 0, 30, 5, 1,
         key="act_reducao_no_show_roi"
     )
     impacto = simular_reducao_no_show(df, reducao / 100.0)
