@@ -54,7 +54,7 @@ streamlit run app/dashboard.py
 
 ## Vídeo pitch
 
-[VIDEO_LINK]
+[![Assista no YouTube](https://img.shields.io/badge/YouTube-Assistir%20pitch-red?logo=youtube)](https://www.youtube.com/watch?v=05B4c4QaIzg)
 
 ## Tecnologias
 
